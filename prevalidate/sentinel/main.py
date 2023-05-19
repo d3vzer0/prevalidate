@@ -21,11 +21,13 @@ class Workspace:
 
     @property
     def global_state(self) -> GlobalState:
+        ''' Generate global state. Used for table/field validation '''
         state = GlobalState.Default.WithDatabase(DatabaseSymbol('db', *self.symbols))
         return state
 
     @property
     def symbols(self) -> list[TableSymbol]:
+        ''' Generate list of Symbols. Used for table/field validation '''
         table_symbols = []
         for table, fields in self.schema.items():
             field_list = ','.join([f'{fname}: {ftype}' for fname, ftype in fields.items()])
@@ -35,6 +37,7 @@ class Workspace:
 
     @classmethod
     def from_file(cls, path: str) -> 'Workspace':
+        ''' Initialise class from schema file '''
         with open(path, 'r') as schemafile:
             global_schema = json.loads(schemafile.read())
             return cls(schema=global_schema)
@@ -47,6 +50,7 @@ class SentinelDetections:
         self.kwargs = kwargs
 
     def validate(self) -> dict[str, str]:
+        ''' Validates if KQL queries are parsed correctly '''
         global_state = self.workspace.global_state
         for detection in self.detections:
             kql = KustoCode.ParseAndAnalyze(detection.query, global_state)
@@ -64,6 +68,7 @@ class SentinelDetections:
 
     @classmethod
     def from_yaml(cls, path: str, **kwargs) -> 'SentinelDetections':
+        ''' Initialised class based on path where detection content is saved '''
         detection_files = glob.glob(f'{path}/*.yaml', recursive=True)
         parsed_content = []
         for detection in detection_files:
@@ -76,8 +81,14 @@ class SentinelDetections:
 @app.command()
 def validate(path: str, schema: str):
     ''' Validate KQL files using KustoLanguageDll + synced schema '''
+
+    # Initialise workspace with schema
     workspace = Workspace.from_file(schema)
+
+    # Load detection content from path
     detections = SentinelDetections.from_yaml(path, workspace=workspace)
+
+    # Check if KQL queries are parsed correctly
     for issue in detections.validate():
         print(issue)
 
