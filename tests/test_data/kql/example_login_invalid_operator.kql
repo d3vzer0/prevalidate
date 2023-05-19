@@ -1,0 +1,4 @@
+SigninLogs
+| where TimeGenerated + ago(7d)
+| sort by TimeGenerated, Identity desc
+| take 5
