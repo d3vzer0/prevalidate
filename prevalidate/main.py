@@ -1,5 +1,4 @@
 import typer
-
 from sentinel import main as sentinelcli
 
 app = typer.Typer()
