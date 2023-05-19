@@ -9,48 +9,77 @@ from Kusto.Language import GlobalState  # noqa: E402,F401
 from Kusto.Language import KustoCode  # noqa: E402,F401
 from Kusto.Language.Symbols import DatabaseSymbol  # noqa: E402,F401,E501
 from Kusto.Language.Symbols import TableSymbol  # noqa: E402,F401,E501
-
+from yaml import safe_load
+from .models.detection import Detection
 
 app = typer.Typer()
+
+
+class Workspace:
+    def __init__(self, schema: str) -> None:
+        self.schema = schema
+
+    @property
+    def global_state(self) -> GlobalState:
+        state = GlobalState.Default.WithDatabase(DatabaseSymbol('db', *self.symbols))
+        return state
+
+    @property
+    def symbols(self) -> list[TableSymbol]:
+        table_symbols = []
+        for table, fields in self.schema.items():
+            field_list = ','.join([f'{fname}: {ftype}' for fname, ftype in fields.items()])
+            symbol_object = TableSymbol(table, f'({field_list})')
+            table_symbols.append(symbol_object)
+        return table_symbols
+
+    @classmethod
+    def from_file(cls, path: str) -> 'Workspace':
+        with open(path, 'r') as schemafile:
+            global_schema = json.loads(schemafile.read())
+            return cls(schema=global_schema)
+
+
+class SentinelDetections:
+    def __init__(self, detections: list[Detection], workspace: Workspace, **kwargs) -> None:
+        self.workspace = workspace
+        self.detections = detections
+        self.kwargs = kwargs
+
+    def validate(self) -> dict[str, str]:
+        global_state = self.workspace.global_state
+        for detection in self.detections:
+            kql = KustoCode.ParseAndAnalyze(detection.query, global_state)
+            diagnostics = kql.GetDiagnostics()
+            if (diagnostics.Count > 0):
+                for diag in diagnostics:
+                    message = {
+                        'name': detection.name,
+                        'query': detection.query,
+                        'severity': diag.Severity,
+                        'message': diag.Message,
+                        'issue': detection.query[diag.Start:diag.End]
+                    }
+                    yield message
+
+    @classmethod
+    def from_yaml(cls, path: str, **kwargs) -> 'SentinelDetections':
+        detection_files = glob.glob(f'{path}/*.yaml', recursive=True)
+        parsed_content = []
+        for detection in detection_files:
+            with open(detection, 'r') as detectionfile:
+                data = safe_load(detectionfile)
+                parsed_content.append(Detection(**data))
+        return cls(detections=parsed_content, **kwargs)
 
 
 @app.command()
 def validate(path: str, schema: str):
     ''' Validate KQL files using KustoLanguageDll + synced schema '''
-    # Open and parse schema file
-    with open(schema, 'r') as schemafile:
-        global_schema = json.loads(schemafile.read())
-
-    # Create list Symbols for GlobalState
-    table_symbols = []
-    for table, fields in global_schema.items():
-        field_list = ','.join([f'{fname}: {ftype}' for fname, ftype in fields.items()])
-        symbol_object = TableSymbol(table, f'({field_list})')
-        table_symbols.append(symbol_object)
-
-    # Initialise Global state to analyse KQL queries
-    global_state = GlobalState.Default.WithDatabase(DatabaseSymbol('db', *table_symbols))
-
-    # Iterate over KQL files, replace later
-    kql_files = glob.glob(f'{path}/*.kql', recursive=True)
-    for kql in kql_files:
-        with open(kql, 'r') as kql_file:
-            kql_content = kql_file.read()
-            print(kql_content)
-            code = KustoCode.ParseAndAnalyze(kql_content, global_state)
-            diagnostics = code.GetDiagnostics()
-            if (diagnostics.Count > 0):
-                for diag in diagnostics:
-                    message = {
-                        'query': kql_content,
-                        'severity': diag.Severity,
-                        'message': diag.Message,
-                        'length': diag.Length,
-                        'start': diag.Start,
-                        'end': diag.End,
-                        'troublemaker': kql_content[diag.Start:diag.End]
-                    }
-                    print(message)
+    workspace = Workspace.from_file(schema)
+    detections = SentinelDetections.from_yaml(path, workspace=workspace)
+    for issue in detections.validate():
+        print(issue)
 
 
 @app.command()
@@ -75,5 +104,5 @@ def sync(path: str, subscription: str, rgroup: str, workspace: str):
         schema_results[table.schema.name] = {**standard_columns, **custom_columns}
 
     # Write tables to file
-    with open(f'{path}.json', 'w') as outputfile:
+    with open(f'{path}/schema.json', 'w') as outputfile:
         outputfile.write(json.dumps(schema_results, indent=2))
