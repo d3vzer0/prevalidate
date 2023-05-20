@@ -35,12 +35,38 @@ class Workspace:
             table_symbols.append(symbol_object)
         return table_symbols
 
+    def to_json(self, output_path: 'str') -> None:
+        ''' Dump schema to JSON '''
+        # Write tables to file
+        with open(f'{output_path}/schema.json', 'w') as outputfile:
+            outputfile.write(json.dumps(self.schema, indent=2))
+
     @classmethod
     def from_file(cls, path: str) -> 'Workspace':
         ''' Initialise class from schema file '''
         with open(path, 'r') as schemafile:
             global_schema = json.loads(schemafile.read())
             return cls(schema=global_schema)
+
+    @classmethod
+    def from_api(cls, credential: 'DefaultAzureCredential', subscription: str, 
+                 rgroup: str, workspace: str) -> 'Workspace':
+        ''' Initialse class via API '''
+        # Initialise LogAnalyticsManagementClient
+        client = LogAnalyticsManagementClient(credential, subscription)
+
+        # List all tables/fields from specified workspace name
+        tables = client.tables.list_by_workspace(resource_group_name=rgroup, workspace_name=workspace)
+
+        # Populate dictionary containing key/value pairs of tables with it's fields/types
+        schema_results = {}
+        for table in tables:
+            standard_columns = {col.name: col.type for col in table.schema.standard_columns}
+            custom_columns = {col.name: col.type for col in table.schema.columns} \
+                if table.schema.columns else {}
+            schema_results[table.schema.name] = {**standard_columns, **custom_columns}
+    
+        return cls(schema=schema_results)
 
 
 class SentinelDetections:
@@ -94,26 +120,31 @@ def validate(path: str, schema: str):
 
 
 @app.command()
-def sync(path: str, subscription: str, rgroup: str, workspace: str):
+def functions(path: str, subscription: str, rgroup: str, workspace: str):
     ''' Sync Log Analytics workspace tables/fields '''
 
     # Use default authentication client
     credential = DefaultAzureCredential()
+    workspace = Workspace.from_api(credential, subscription, rgroup, workspace)
 
     # Initialise LogAnalyticsManagementClient
     client = LogAnalyticsManagementClient(credential, subscription)
+    saved_searches = client.saved_searches.list_by_workspace(resource_group_name=rgroup, workspace_name=workspace)
 
-    # List all tables/fields from specified workspace name
-    tables = client.tables.list_by_workspace(resource_group_name=rgroup, workspace_name=workspace)
+    custom_functions = []
+    for search in saved_searches.value:
+        print(search)
+    #     if search.function_alias:
+    #         custom_functions.append(search.function_alias)
 
-    # Populate dictionary containing key/value pairs of tables with it's fields/types
-    schema_results = {}
-    for table in tables:
-        standard_columns = {col.name: col.type for col in table.schema.standard_columns}
-        custom_columns = {col.name: col.type for col in table.schema.columns} \
-            if table.schema.columns else {}
-        schema_results[table.schema.name] = {**standard_columns, **custom_columns}
+    # with open(f'{path}/functions.json', 'w') as outputfile:
+    #     outputfile.write(json.dumps(custom_functions, indent=2))
 
-    # Write tables to file
-    with open(f'{path}/schema.json', 'w') as outputfile:
-        outputfile.write(json.dumps(schema_results, indent=2))
+
+@app.command()
+def tables(path: str, subscription: str, rgroup: str, workspace: str):
+    ''' Sync Log Analytics workspace tables/fields '''
+    # Use default authentication client
+    credential = DefaultAzureCredential()
+    workspace = Workspace.from_api(credential, subscription, rgroup, workspace)
+    workspace.to_json(path)
