@@ -5,10 +5,13 @@ import clr  # noqa: F401
 import typer
 from azure.identity import DefaultAzureCredential
 from azure.mgmt.loganalytics import LogAnalyticsManagementClient
+from azure.monitor.query import LogsQueryClient
+from azure.core.rest import HttpRequest
 from Kusto.Language import GlobalState  # noqa: E402,F401
 from Kusto.Language import KustoCode  # noqa: E402,F401
 from Kusto.Language.Symbols import DatabaseSymbol  # noqa: E402,F401,E501
 from Kusto.Language.Symbols import TableSymbol  # noqa: E402,F401,E501
+from Kusto.Language.Symbols import FunctionSymbol # noqa: E402,F401,E501
 from yaml import safe_load
 from .models.detection import Detection
 
@@ -16,8 +19,9 @@ app = typer.Typer()
 
 
 class Workspace:
-    def __init__(self, schema: str) -> None:
-        self.schema = schema
+    def __init__(self, tables: list, functions: list) -> None:
+        self.tables = tables
+        self.functions = functions
 
     @property
     def global_state(self) -> GlobalState:
@@ -28,45 +32,54 @@ class Workspace:
     @property
     def symbols(self) -> list[TableSymbol]:
         ''' Generate list of Symbols. Used for table/field validation '''
-        table_symbols = []
-        for table, fields in self.schema.items():
-            field_list = ','.join([f'{fname}: {ftype}' for fname, ftype in fields.items()])
-            symbol_object = TableSymbol(table, f'({field_list})')
-            table_symbols.append(symbol_object)
-        return table_symbols
+        all_symbols = []
+        for table, columns in self.tables.items():
+            field_list = ','.join([f'{column["name"]}: {column["type"]}' for column in columns])
+            table_symbol = TableSymbol(table, f'({field_list})')
+            all_symbols.append(table_symbol)
+
+        for function, body in self.functions.items():
+            function_symbol = FunctionSymbol(function, f'{{ {body} }}')
+            all_symbols.append(function_symbol)
+
+        return all_symbols
 
     def to_json(self, output_path: 'str') -> None:
         ''' Dump schema to JSON '''
-        # Write tables to file
-        with open(f'{output_path}/schema.json', 'w') as outputfile:
-            outputfile.write(json.dumps(self.schema, indent=2))
+        # Write tables and functions to file
+        with open(f'{output_path}', 'w') as outputfile:
+            outputfile.write(json.dumps({'functions': self.functions,
+                                         'tables': self.tables}, indent=2))
 
     @classmethod
     def from_file(cls, path: str) -> 'Workspace':
         ''' Initialise class from schema file '''
         with open(path, 'r') as schemafile:
             global_schema = json.loads(schemafile.read())
-            return cls(schema=global_schema)
+            return cls(tables=global_schema['tables'], 
+                       functions=global_schema['functions'])
+
+    def _get(self, uri, token, headers=None) -> list:
+        import requests
+        headers = {
+            'Authorization': f'Bearer {token}',
+            **headers
+        }
+        return requests.get(uri, headers=headers).json()
 
     @classmethod
-    def from_api(cls, credential: 'DefaultAzureCredential', subscription: str, 
-                 rgroup: str, workspace: str) -> 'Workspace':
+    def from_api(cls, credential: 'DefaultAzureCredential', workspace_id: str) -> 'Workspace':
         ''' Initialse class via API '''
-        # Initialise LogAnalyticsManagementClient
-        client = LogAnalyticsManagementClient(credential, subscription)
 
-        # List all tables/fields from specified workspace name
-        tables = client.tables.list_by_workspace(resource_group_name=rgroup, workspace_name=workspace)
+        logs_client = LogsQueryClient(credential)
+        header = {'prefer': 'metadata-format-v4,exclude-customlogs,exclude-customfields,wait=180'}
+        request = HttpRequest(url=f'workspaces/{workspace_id}/metadata?select=tables,functions', method='GET', headers=header)
+        response = logs_client._client.send_request(request).json()
 
-        # Populate dictionary containing key/value pairs of tables with it's fields/types
-        schema_results = {}
-        for table in tables:
-            standard_columns = {col.name: col.type for col in table.schema.standard_columns}
-            custom_columns = {col.name: col.type for col in table.schema.columns} \
-                if table.schema.columns else {}
-            schema_results[table.schema.name] = {**standard_columns, **custom_columns}
-    
-        return cls(schema=schema_results)
+        # # Populate dictionary containing key/value pairs of tables with it's fields/types
+        tables = {table['name']: table['columns'] for table in response['tables']} 
+        functions = {function['name']: function['body'] for function in response['functions']}
+        return cls(tables=tables, functions=functions)
 
 
 class SentinelDetections:
@@ -120,31 +133,9 @@ def validate(path: str, schema: str):
 
 
 @app.command()
-def functions(path: str, subscription: str, rgroup: str, workspace: str):
-    ''' Sync Log Analytics workspace tables/fields '''
-
-    # Use default authentication client
-    credential = DefaultAzureCredential()
-    workspace = Workspace.from_api(credential, subscription, rgroup, workspace)
-
-    # Initialise LogAnalyticsManagementClient
-    client = LogAnalyticsManagementClient(credential, subscription)
-    saved_searches = client.saved_searches.list_by_workspace(resource_group_name=rgroup, workspace_name=workspace)
-
-    custom_functions = []
-    for search in saved_searches.value:
-        print(search)
-    #     if search.function_alias:
-    #         custom_functions.append(search.function_alias)
-
-    # with open(f'{path}/functions.json', 'w') as outputfile:
-    #     outputfile.write(json.dumps(custom_functions, indent=2))
-
-
-@app.command()
-def tables(path: str, subscription: str, rgroup: str, workspace: str):
+def sync(path: str, workspace: str):
     ''' Sync Log Analytics workspace tables/fields '''
     # Use default authentication client
     credential = DefaultAzureCredential()
-    workspace = Workspace.from_api(credential, subscription, rgroup, workspace)
+    workspace = Workspace.from_api(credential, workspace_id=workspace)
     workspace.to_json(path)
