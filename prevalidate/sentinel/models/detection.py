@@ -12,8 +12,10 @@ class EntityMapping(BaseModel):
 
 
 class Tag(BaseModel):
-    Id: str
-    version: str
+    Id: str = None
+    version: str = None
+    Schema: str = None
+    SchemaVersion: str = None
 
 
 class Detection(BaseModel):
@@ -21,7 +23,7 @@ class Detection(BaseModel):
     name: str
     description: str
     severity: str
-    requiredDataConnectors: list[str]
+    requiredDataConnectors: list[dict]
     queryFrequency: str
     queryPeriod: str
     triggerOperator: str
@@ -32,7 +34,7 @@ class Detection(BaseModel):
     tags: list[Tag]
     version: str
     kind: str
-    metadata: dict
+    metadata: dict = None
 
     # @validator('relevantTechniques')
     # def must_be_technique_id(cls, v):

@@ -38,8 +38,8 @@ class Workspace:
             table_symbol = TableSymbol(table, f'({field_list})')
             all_symbols.append(table_symbol)
 
-        for function, body in self.functions.items():
-            function_symbol = FunctionSymbol(function, f'{{ {body} }}')
+        for function, values in self.functions.items():
+            function_symbol = FunctionSymbol(function, f'({values["params"]})', f'{{ {values["body"]} }}')
             all_symbols.append(function_symbol)
 
         return all_symbols
@@ -77,8 +77,8 @@ class Workspace:
         response = logs_client._client.send_request(request).json()
 
         # # Populate dictionary containing key/value pairs of tables with it's fields/types
-        tables = {table['name']: table['columns'] for table in response['tables']} 
-        functions = {function['name']: function['body'] for function in response['functions']}
+        tables = {table['name']: table['columns'] for table in response['tables']}
+        functions = {function['name']: {'body': function['body'], 'params': function.get('parameters')} for function in response['functions']}
         return cls(tables=tables, functions=functions)
 
 
