@@ -35,9 +35,3 @@ class Detection(BaseModel):
     version: str
     kind: str
     metadata: dict = None
-
-    # @validator('relevantTechniques')
-    # def must_be_technique_id(cls, v):
-    #     if ' ' not in v:
-    #         raise ValueError('must contain a space')
-    #     return v.title()
