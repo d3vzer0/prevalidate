@@ -72,13 +72,18 @@ class Workspace:
         ''' Initialse class via API '''
 
         logs_client = LogsQueryClient(credential)
+
+        # Request workspace metadata containing tables and both custom + default functions
         header = {'prefer': 'metadata-format-v4,exclude-customlogs,exclude-customfields,wait=180'}
-        request = HttpRequest(url=f'workspaces/{workspace_id}/metadata?select=tables,functions', method='GET', headers=header)
+        request = HttpRequest(url=f'workspaces/{workspace_id}/metadata?select=tables,functions',
+                              method='GET', headers=header)
         response = logs_client._client.send_request(request).json()
 
         # # Populate dictionary containing key/value pairs of tables with it's fields/types
-        tables = {table['name']: table['columns'] for table in response['tables']}
-        functions = {function['name']: {'body': function['body'], 'params': function.get('parameters')} for function in response['functions']}
+        tables = {table['name']: [{'name': column['name'], 'type': column['type']} for column in table['columns']]
+                  for table in response['tables']}
+        functions = {function['name']: {'body': function['body'], 'params': function.get('parameters')}
+                     for function in response['functions']}
         return cls(tables=tables, functions=functions)
 
 
@@ -118,7 +123,7 @@ class SentinelDetections:
 
 
 @app.command()
-def validate(path: str, schema: str):
+def validate(path: str, schema: str) -> None:
     ''' Validate KQL files using KustoLanguageDll + synced schema '''
 
     # Initialise workspace with schema
@@ -133,7 +138,7 @@ def validate(path: str, schema: str):
 
 
 @app.command()
-def sync(path: str, workspace: str):
+def sync(path: str, workspace: str) -> None:
     ''' Sync Log Analytics workspace tables/fields '''
     # Use default authentication client
     credential = DefaultAzureCredential()
