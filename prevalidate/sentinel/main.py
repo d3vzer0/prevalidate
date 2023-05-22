@@ -59,14 +59,6 @@ class Workspace:
             return cls(tables=global_schema['tables'], 
                        functions=global_schema['functions'])
 
-    def _get(self, uri, token, headers=None) -> list:
-        import requests
-        headers = {
-            'Authorization': f'Bearer {token}',
-            **headers
-        }
-        return requests.get(uri, headers=headers).json()
-
     @classmethod
     def from_api(cls, credential: 'DefaultAzureCredential', workspace_id: str) -> 'Workspace':
         ''' Initialse class via API '''
