@@ -1,0 +1,84 @@
+{
+    "functions": {
+      "_ASim_NetworkSession_PaloAltoCEFV05": {
+        "body": "let Actions=datatable(DeviceAction:string,DvcAction:string)\r\n[ \"reset client\",\"Reset Source\"\r\n, \"reset server\",\"Reset Destination\"\r\n, \"reset both\", \"Reset\"\r\n, \"allow\",\"Allow\"\r\n, \"deny\",\"Deny\"\r\n, \"drop\", \"Drop\"\r\n, \"drop ICMP\", \"Drop ICMP\"];\r\nlet NWParser=(disabled:bool=false){\r\nCommonSecurityLog | where not(disabled)\r\n| where DeviceVendor == \"Palo Alto Networks\" and DeviceProduct == \"PAN-OS\" and Activity == \"TRAFFIC\"\r\n| parse AdditionalExtensions with \"PanOSPacketsReceived=\" DstPackets:long * \"PanOSPacketsSent=\" SrcPackets:long *\r\n  // -- Adjustment to support both old and new CSL fields.\r\n| extend \r\n  EventStartTime =  coalesce(\r\n    todatetime(StartTime), \r\n    extract(@'start=(.*?)(?:;|$)',1, AdditionalExtensions,typeof(datetime)),\r\n    datetime(null)\r\n  ),\r\n  EventOriginalResultDetails = coalesce(\r\n    column_ifexists(\"Reason\", \"\"),\r\n    extract(@'reason=(.*?)(?:;|$)',1, AdditionalExtensions, typeof(string)),\r\n    \"\"\r\n  )\r\n| project-rename \r\n    EventProductVersion=DeviceVersion // Not Documented\r\n  , Dvc=DeviceName   \r\n  , NetworkApplicationProtocol=ApplicationProtocol\r\n  , SrcZone=DeviceCustomString4 \r\n  , DstZone=DeviceCustomString5\r\n  , NetworkRuleName=DeviceCustomString1\r\n  , SrcUsername=SourceUserName \r\n  , DstUsername=DestinationUserName \r\n  , EventOriginalSeverity=LogSeverity // not documented\r\n  , SrcNatIpAddr=SourceTranslatedAddress\r\n  , DstNatIpAddr=DestinationTranslatedAddress\r\n  , PaloAltoFlags=FlexString1 // Flags\r\n| extend\r\nEventVendor=\"Palo Alto\"\r\n  ,EventProduct=\"PanOS\" // Not Documented\r\n  , SrcBytes=tolong(SentBytes)\r\n  , DstBytes=tolong(ReceivedBytes) \r\n  , NetworkProtocol=toupper(Protocol)\r\n  , NetworkBytes=tolong(FlexNumber1)\r\n  , SrcUsernameType=case(isempty(SrcUsername), \"\", SrcUsername contains \"@\", \"UPN\", \"Simple\")\r\n  , DstUsernameType=case(isempty(DstUsername), \"\", DstUsername contains \"@\", \"UPN\", \"Simple\")\r\n  , EventType=\"NetworkSession\"\r\n  , EventCount=toint(1)\r\n  , EventResult=case(DeviceAction==\"allow\",\"Success\",\"Failure\")\r\n  // -- Adjustment to support both old and new CSL fields.\r\n  , NetworkPackets = coalesce(\r\n      tolong(column_ifexists(\"fieldDeviceCustomNumber2\", long(null))),\r\n      tolong(column_ifexists(\"DeviceCustomNumber2\",long(null)))\r\n    )\r\n  , NetworkSessionId = coalesce(\r\n      tostring(column_ifexists(\"fieldDeviceCustomNumber1\", long(null))),\r\n      tostring(column_ifexists(\"DeviceCustomNumber1\",long(null)))\r\n    )\r\n  , NetworkDuration= coalesce(\r\n      toint(1000*column_ifexists(\"fieldDeviceCustomNumber3\", 0)),\r\n      toint(1000*column_ifexists(\"DeviceCustomNumber3\",0)),\r\n      int(null)\r\n    )\r\n  , EventSchemaVersion=\"0.2.1\"\r\n  , EventSchema=\"NetworkSession\"\r\n  , EventSeverity = \"Informational\"\r\n| extend hostelements=split(Dvc,'.')\r\n| extend DvcHostname=tostring(hostelements[0])\r\n       , DvcDomain=strcat_array( array_slice(hostelements,1,-1), '.')\r\n| extend DvcFQDN = iff(Dvc contains \".\",Dvc,\"\" )\r\n      , DvcDomainType=iff(Dvc contains \".\",\"FQDN\",\"\" )\r\n| project-away hostelements\r\n| lookup Actions on DeviceAction\r\n| project-rename\r\n  DstMacAddr=DestinationMACAddress\r\n  , SrcMacAddr=SourceMACAddress\r\n  , DstIpAddr=DestinationIP\r\n  , DstPortNumber=DestinationPort\r\n  , DstNatPortNumber=DestinationTranslatedPort\r\n  , SrcPortNumber=SourcePort\r\n  , SrcIpAddr=SourceIP\r\n  , SrcNatPortNumber=SourceTranslatedPort\r\n  , DvcOutboundInterface=DeviceOutboundInterface\r\n  , DvcInboundInterface=DeviceInboundInterface\r\n  , EventMessage=Message\r\n  , DvcOriginalAction=DeviceAction\r\n// -- Aliases\r\n| extend\r\nIpAddr = SrcIpAddr,\r\nRule=NetworkRuleName,\r\nDst=DstIpAddr,\r\n// Host=DstHostname, \r\nUser=DstUsername,\r\nDuration=NetworkDuration,\r\nSessionId=NetworkSessionId,\r\nEventEndTime =EventStartTime,\r\nSrc=SrcIpAddr\r\n};\r\nNWParser (disabled)",
+        "params": "disabled:bool = false"
+      },
+      "_ASIM_ResolveICMPType": {
+        "body": "let NetworkIcmpTypeLookup = datatable(NetworkIcmpCode:int, NetworkIcmpType:string) [\r\n  0,\"Echo Reply\",\r\n  1,\"Unassigned\",\r\n  2,\"Unassigned\",\r\n  3,\"Destination Unreachable\",\r\n  4,\"Source Quench (Deprecated)\",\r\n  5,\"Redirect\",\r\n  6,\"Alternate Host Address (Deprecated)\",\r\n  7,\"Unassigned\",\r\n  8,\"Echo\",\r\n  9,\"Router Advertisement\",\r\n  10,\"Router Solicitation\",\r\n  11,\"Time Exceeded\",\r\n  12,\"Parameter Problem\",\r\n  13,\"Timestamp\",\r\n  14,\"Timestamp Reply\",\r\n  15,\"Information Request (Deprecated)\",\r\n  16,\"Information Reply (Deprecated)\",\r\n  17,\"Address Mask Request (Deprecated)\",\r\n  18,\"Address Mask Reply (Deprecated)\",\r\n  19,\"Reserved (for Security)\",\r\n  20,\"Reserved (for Robustness Experiment)\", \r\n  21,\"Reserved (for Robustness Experiment)\",\r\n  22,\"Reserved (for Robustness Experiment)\",\r\n  23,\"Reserved (for Robustness Experiment)\",\r\n  24,\"Reserved (for Robustness Experiment)\",\r\n  25,\"Reserved (for Robustness Experiment)\",\r\n  26,\"Reserved (for Robustness Experiment)\",\r\n  27,\"Reserved (for Robustness Experiment)\",\r\n  28,\"Reserved (for Robustness Experiment)\",\r\n  29,\"Reserved (for Robustness Experiment)\",\r\n  30,\"Traceroute (Deprecated)\",\r\n  31,\"Datagram Conversion Error (Deprecated)\",\r\n  32,\"Mobile Host Redirect (Deprecated)\",\r\n  33,\"IPv6 Where-Are-You (Deprecated)\",\r\n  34,\"IPv6 I-Am-Here (Deprecated)\",\r\n  35,\"Mobile Registration Request (Deprecated)\",\r\n  36,\"Mobile Registration Reply (Deprecated)\",\r\n  37,\"Domain Name Request (Deprecated)\",\r\n  38,\"Domain Name Reply (Deprecated)\",\r\n  39,\"SKIP (Deprecated)\",\r\n  40,\"Photuris\",\r\n  41,\"ICMP messages utilized by experimental mobility protocols such as Seamoby\",\r\n  42,\"Extended Echo Request\",\r\n  43,\"Extended Echo Reply\",\r\n  253,\"RFC3692-style Experiment 1\",\r\n  254,\"RFC3692-style Experiment 2\",\r\n  255,\"Reserved\"   \r\n];\r\nT\r\n| extend NetworkIcmpCode = toint(column_ifexists(field,0))\r\n| lookup NetworkIcmpTypeLookup on NetworkIcmpCode\r\n| extend NetworkIcmpType = \r\n  case (\r\n    NetworkIcmpType != \"\", NetworkIcmpType,\r\n    'Unassigned'\r\n  )\r\n",
+        "params": "T:(*), field:string"
+      }
+    },
+    "tables": {
+      "AACAudit": [
+        {
+          "name": "TenantId",
+          "type": "string"
+        },
+        {
+          "name": "TimeGenerated",
+          "type": "datetime"
+        },
+        {
+          "name": "Category",
+          "type": "string"
+        },
+        {
+          "name": "CorrelationId",
+          "type": "string"
+        },
+        {
+          "name": "Status",
+          "type": "string"
+        },
+        {
+          "name": "OperationName",
+          "type": "string"
+        },
+        {
+          "name": "ETag",
+          "type": "string"
+        },
+        {
+          "name": "EventCategory",
+          "type": "string"
+        },
+        {
+          "name": "TargetResource",
+          "type": "dynamic"
+        },
+        {
+          "name": "ResultType",
+          "type": "string"
+        },
+        {
+          "name": "CallerIdentity",
+          "type": "dynamic"
+        },
+        {
+          "name": "CallerIPAddress",
+          "type": "string"
+        },
+        {
+          "name": "RequestId",
+          "type": "string"
+        },
+        {
+          "name": "SourceSystem",
+          "type": "string"
+        },
+        {
+          "name": "Type",
+          "type": "string"
+        },
+        {
+          "name": "_ResourceId",
+          "type": "string"
+        },
+        {
+          "name": "_SubscriptionId",
+          "type": "string"
+        }
+      ]
+    }
+  }
