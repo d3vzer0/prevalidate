@@ -1,19 +1,19 @@
 import glob
 import json
 import os
+import pytest
 
 import clr  # noqa: F401
 import typer
-from xml.dom import minidom
+# from xml.dom import minidom
 from azure.identity import DefaultAzureCredential
-from azure.mgmt.loganalytics import LogAnalyticsManagementClient
 from azure.monitor.query import LogsQueryClient
 from azure.core.rest import HttpRequest
 from Kusto.Language import GlobalState  # noqa: E402,F401
 from Kusto.Language import KustoCode  # noqa: E402,F401
 from Kusto.Language.Symbols import DatabaseSymbol  # noqa: E402,F401,E501
 from Kusto.Language.Symbols import TableSymbol  # noqa: E402,F401,E501
-from Kusto.Language.Symbols import FunctionSymbol # noqa: E402,F401,E501
+from Kusto.Language.Symbols import FunctionSymbol  # noqa: E402,F401,E501
 from yaml import safe_load
 from jinja2 import Template
 from .models.detection import Detection
@@ -84,58 +84,22 @@ class Workspace:
         return cls(tables=tables, functions=functions)
 
 
-class Pipeline:
-
-    @property
-    def tests_cases(self, path):
-        
-    def to_junitxml(self, path):
-        ''' Exports results to juxml '''
-
-        results = [{'name': name, 'query': query, 'errors': errors} for
-                   name, query, errors in self.validate()]
-
-        # Initialise XML document
-        xml = minidom.Document()
-        testsuites = xml.createElement('testsuites')
-        xml.appendChild(testsuites)
-
-        # Set base testsuite
-        testsuite = xml.createElement('testsuite')
-        testsuite.setAttribute('name', 'kqlvalidation')
-
-        # Set the default counts
-        fail_count = 0
-
-        # Check if KQL queries are parsed correctly
-        for result in results:
-            testcase = xml.createElement('testcase')
-            testcase.setAttribute('name', result['name'])
-            if result['errors']:
-                fail_count += 1
-                for error in result['errors']:
-                    errorentry = xml.createElement('failure')
-                    errorentry.setAttribute('message', error['message'])
-                    testcase.appendChild(errorentry)
-            testsuite.appendChild(testcase)
-
-        testsuite.setAttribute('tests', str(len(self.detections)))
-        testsuite.setAttribute('failures', str(fail_count))
-        testsuites.appendChild(testsuite)
-        return xml.toprettyxml(indent="  ")
-
-
 class KQL(Detection):
     def validate(self, workspace):
         global_state = workspace.global_state
         kql = KustoCode.ParseAndAnalyze(self.query, global_state)
         diagnostics = kql.GetDiagnostics()
-        errors = [diag for diag in diagnostics if diagnostics.Count > 0]
+        errors = [{
+            'severity': diag.Severity,
+            'message': diag.Message,
+            'start': diag.Start,
+            'end': diag.End,
+            'issue': self.query[diag.Start:diag.End]
+            } for diag in diagnostics if diagnostics.Count > 0]  # noqa: E123
         return errors
-        # pass
 
 
-class SentinelDetections(Pipeline):
+class SentinelDetections:
     def __init__(self, detections: list[Detection], workspace: Workspace, **kwargs) -> None:
         self.workspace = workspace
         self.detections = detections
@@ -160,8 +124,8 @@ class SentinelDetections(Pipeline):
     @classmethod
     def from_yaml(cls, path: str, **kwargs) -> 'SentinelDetections':
         ''' Initialised class based on path where detection content is saved '''
-        detection_files = glob.glob(f'{path}/**/*.yaml', recursive=True)
         parsed_content = []
+        detection_files = glob.glob(f'{path}/**/*.yaml', recursive=True)
         for detection in detection_files:
             with open(detection, 'r') as detectionfile:
                 data = safe_load(detectionfile)
@@ -181,6 +145,30 @@ class SentinelDetections(Pipeline):
                 outfile.write(rendered_file)
 
 
+class PytestValidation:
+    def pytest_addoption(self, parser):
+        default_path = os.path.dirname(__file__)
+        parser.addoption('--detections', action='store',
+                default=default_path, help='Path containing detection content')
+        parser.addoption('--schema', default=None, action='store',
+                help='Path containing schema')
+
+    def pytest_generate_tests(self, metafunc):
+        if 'detections' in metafunc.fixturenames:
+            path = metafunc.config.getoption('detections')
+            if metafunc.config.getoption('schema'):
+                workspace = Workspace.from_file(metafunc.config.getoption('schema'))
+            else:
+                workspace = Workspace(tables=None, functions=None)
+
+            detections = SentinelDetections.from_yaml(path, workspace=workspace)
+            results = [{'name': name, 'query': query, 'results': results}
+                    for name, query, results in detections.validate()]
+            metafunc.parametrize("detections", results, ids=[result['name']
+                                                            for result in results])
+
+
+
 @app.command()
 def validate(path: str, schema: str) -> None:
     ''' Validate KQL files using KustoLanguageDll + synced schema '''
@@ -192,7 +180,14 @@ def validate(path: str, schema: str) -> None:
     detections = SentinelDetections.from_yaml(path, workspace=workspace)
     for detection in detections.detections:
         print(detection.validate(workspace))
+
+
+@app.command()
+def letest(detections):
+    pytest.main(["test_stages", f'--detections={detections}'],
+                plugins=[PytestValidation()])
     # print(detections.to_junitxml('/tmp/test.json'))
+
 
 @app.command()
 def sync(path: str, workspace: str) -> None:
