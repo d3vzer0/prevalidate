@@ -1,10 +1,9 @@
 from azure.identity import DefaultAzureCredential
-from prevalidate.sentinel.main import Workspace, SentinelDetections
+from prevalidate.sentinel.main import Workspace, SentinelDetections, KQL
 from azure.monitor.query import LogsQueryClient
 from datetime import datetime, timedelta
 from azure.core.rest import HttpRequest
 from prevalidate.sentinel.main import Workspace
-import requests
 import os
 
 BASE_PATH = os.path.dirname(__file__)

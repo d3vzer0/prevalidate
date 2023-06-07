@@ -23,15 +23,15 @@ class Detection(BaseModel):
     name: str
     description: str
     severity: str
-    requiredDataConnectors: list[dict]
+    requiredDataConnectors: list[dict] = []
     queryFrequency: str
     queryPeriod: str
     triggerOperator: str
     triggerThreshold: int
-    tactics: list[str]
-    relevantTechniques: list[str]
+    tactics: list[str] = []
+    relevantTechniques: list[str] = []
     query: str
-    tags: list[Tag]
+    # tags: list[Tag] = []
     version: str
     kind: str
     metadata: dict = None
