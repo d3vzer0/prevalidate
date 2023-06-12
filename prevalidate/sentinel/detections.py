@@ -4,13 +4,14 @@ from pydantic.error_wrappers import ValidationError
 from Kusto.Language import KustoCode  # noqa: E402,F401
 from .workspace import Workspace
 from yaml import safe_load
+from .workspace import Workspace
 from jinja2 import Template
 import os
 import glob
 
 
 class KQL(Detection):
-    def validate(self, workspace):
+    def validate(self, workspace: 'Workspace') -> list[dict]:
         global_state = workspace.global_state
         kql = KustoCode.ParseAndAnalyze(self.query, global_state)
         diagnostics = kql.GetDiagnostics()
@@ -60,6 +61,7 @@ class SentinelDetections:
                     pass
                     # raise ParsingError(f"{detection}", err)
         return cls(detections=parsed_content, **kwargs)
+
 
     def to_markdown(self, path: str, template: str = 'templates/detection.md') -> None:
         current_path = os.path.dirname(__file__)

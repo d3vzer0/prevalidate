@@ -22,10 +22,11 @@ app = typer.Typer()
 
 
 @app.command()
-def unittest(detections, schema):
+def test(detections: str, schema: str) -> None:
     current_dir = os.path.dirname(__file__)
     test_dir = os.path.join(current_dir, 'test_stages')
-    pytest.main([test_dir, f'--detections={detections}', f'--schema={schema}', "--junitxml=./results.xml",
+    pytest.main([test_dir, f'--detections={detections}', 
+                 f'--schema={schema}', "--junitxml=./results.xml",
                  "-s", "--tb=line"],
                 plugins=[PytestValidation()])
 

@@ -3,4 +3,6 @@
 {{ description }}
 
 ## Query
-` {{ query }}`
+``` 
+{{ query }}
+```
