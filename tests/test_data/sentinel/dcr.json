@@ -1,0 +1,16 @@
+{
+    "tables": {
+      "source": [
+        {
+          "name": "RawData",
+          "type": "string"
+        },
+        {
+          "name": "Time",
+          "type": "datetime"
+        }
+      ]
+    },
+    "functions": {
+    }
+  }
