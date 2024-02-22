@@ -10,6 +10,16 @@
       }
     },
     "tables": {
+      "SigninLogs": [
+        {
+          "name": "TimeGenerated",
+          "type": "datetime"
+        },
+        {
+          "name": "Identity",
+          "type": "string"
+        }
+      ],
       "AACAudit": [
         {
           "name": "TenantId",

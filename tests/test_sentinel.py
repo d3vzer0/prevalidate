@@ -1,18 +1,9 @@
 from azure.identity import DefaultAzureCredential
-from prevalidate.sentinel.main import Workspace, SentinelDetections, KQL
-from azure.monitor.query import LogsQueryClient
-from datetime import datetime, timedelta
-from azure.core.rest import HttpRequest
+from prevalidate.sentinel.detections import SentinelDetections, KQL
 from prevalidate.sentinel.main import Workspace
 import os
 
 BASE_PATH = os.path.dirname(__file__)
-
-
-def test_detections_to_markdown():
-    detections_dir = os.path.join(BASE_PATH, 'test_data/sentinel/detections')
-    detections = SentinelDetections.from_yaml(detections_dir, workspace=None)
-    detections.to_markdown('../test')
 
 
 def test_validate():
@@ -21,7 +12,17 @@ def test_validate():
 
     workspace = Workspace.from_file(schema_file)
     detections = SentinelDetections.from_yaml(detections_dir, workspace=workspace)
-    issues = [issue for issue in detections.validate()]
+    issues = [issues for name, query, issues in detections.validate() if issues]
+    assert len(issues) == 2
+
+
+def test_validate_plain():
+    schema_file = os.path.join(BASE_PATH, 'test_data/sentinel/schema.json')
+    detections_dir = os.path.join(BASE_PATH, 'test_data/kql')
+
+    workspace = Workspace.from_file(schema_file)
+    detections = SentinelDetections.from_plain(detections_dir, workspace=workspace)
+    issues = [issues for name, query, issues in detections.validate() if issues]
     assert len(issues) == 2
 
 

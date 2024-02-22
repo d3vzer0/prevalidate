@@ -35,3 +35,10 @@ class Detection(BaseModel):
     version: str
     kind: str
     metadata: dict = None
+
+
+class PlainDetection(BaseModel):
+    name: str
+    query: str
+
+

@@ -8,25 +8,15 @@ from .workspace import Workspace
 app = typer.Typer()
 
 
-# @app.command()
-# def validate(path: str, schema: str) -> None:
-#     ''' Validate KQL files using KustoLanguageDll + synced schema '''
-
-#     # Initialise workspace with schema
-#     workspace = Workspace.from_file(schema)
-
-#     # Load detection content from path
-#     detections = SentinelDetections.from_yaml(path, workspace=workspace)
-#     for detection in detections.detections:
-#         print(detection.validate(workspace))
-
+valid_options = ['yaml','kql']
 
 @app.command()
-def test(detections: str, schema: str) -> None:
+def test(detections: str, schema: str, format: str = typer.Option(default="yaml", help="Format of files")) -> None:
     current_dir = os.path.dirname(__file__)
     test_dir = os.path.join(current_dir, 'test_stages')
     pytest.main([test_dir, f'--detections={detections}', 
                  f'--schema={schema}', "--junitxml=./results.xml",
+                 f"--format={format}",
                  "-s", "--tb=line"],
                 plugins=[PytestValidation()])
 
